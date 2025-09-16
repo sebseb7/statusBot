@@ -205,8 +205,6 @@ export async function runTcpTest(testConfig, timeout = 5000) {
 }
 
 export async function runAllTests() {
-  console.log('Running all monitoring tests...');
-  
   // Parse HTTP configurations
   let httpTests = [];
   if (process.env.HTTP_ENDPOINTS) {
@@ -233,22 +231,18 @@ export async function runAllTests() {
   
   const results = [];
   
-  // Run HTTP tests
-  console.log(`\n🔗 Testing ${httpTests.length} HTTP endpoints:`);
+  // Run HTTP tests (quiet logging)
   for (const testConfig of httpTests) {
-    console.log(`  ${testConfig.name}: ${testConfig.target}`);
     const result = await runHttpTest(testConfig);
     results.push({ type: 'http', ...result });
   }
   
-  // Run TCP tests
-  console.log(`\n🌐 Testing ${tcpTests.length} TCP connections:`);
+  // Run TCP tests (quiet logging)
   for (const testConfig of tcpTests) {
-    console.log(`  ${testConfig.name}: ${testConfig.target}`);
     const result = await runTcpTest(testConfig);
     results.push({ type: 'tcp', ...result });
   }
   
-  console.log(`\n✅ Completed ${results.length} tests`);
+  console.log(`✅ Completed ${results.length} tests`);
   return results;
 }

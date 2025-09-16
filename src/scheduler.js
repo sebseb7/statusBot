@@ -12,7 +12,9 @@ export function startMonitoring(intervalMinutes = 5) {
   runAllTests().then(() => {
     // Schedule regular tests
     testInterval = cron.schedule(`*/${intervalMinutes} * * * *`, () => {
-      console.log(`\n=== Scheduled test run at ${new Date().toLocaleString()} ===`);
+      if (process.env.LOG_VERBOSE === 'true') {
+        console.log(`\n=== Scheduled test run at ${new Date().toLocaleString()} ===`);
+      }
       runAllTests();
     });
   });
