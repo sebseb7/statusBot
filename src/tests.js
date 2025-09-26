@@ -60,9 +60,11 @@ export async function runHttpTest(testConfig, timeout = 10000) {
     const status = response.status < 400 ? 'success' : 'failed';
     const errorMessage = status === 'failed' ? `HTTP ${response.status}` : null;
     
-    // Check if this is a recovery
+    // Check previous status to determine if this is a status change
     const lastResult = getLastTestResult.get(url, testType);
-    const isRecovery = lastResult && lastResult.status === 'failed';
+    const previousStatus = lastResult ? lastResult.status : null;
+    const statusChanged = previousStatus !== status;
+    const isRecovery = previousStatus === 'failed' && status === 'success';
     
     // Explicit type conversion for SQLite binding
     insertTestResult.run(
@@ -75,7 +77,8 @@ export async function runHttpTest(testConfig, timeout = 10000) {
       isRecovery ? 1 : 0
     );
     
-    if (status === 'failed' || isRecovery) {
+    // Only send message if status changed
+    if (statusChanged) {
       const message = isRecovery 
         ? `✅ <b>RECOVERY</b>: ${name} is back online (Response time: ${responseTime}ms)`
         : `❌ <b>HTTP TEST FAILED</b>: ${name} - ${errorMessage} (Response time: ${responseTime}ms)`;
@@ -97,22 +100,28 @@ export async function runHttpTest(testConfig, timeout = 10000) {
       errorMessage = error.message || 'Unknown error';
     }
     
+    // Check previous status to determine if this is a status change
     const lastResult = getLastTestResult.get(url, testType);
-    const isRecovery = false;
+    const previousStatus = lastResult ? lastResult.status : null;
+    const currentStatus = 'failed';
+    const statusChanged = previousStatus !== currentStatus;
     
     // Explicit type conversion for SQLite binding
     insertTestResult.run(
       String(testType),
       String(name),
       String(url),
-      'failed',
+      currentStatus,
       Number(responseTime),
       String(errorMessage),
       0
     );
     
-    const message = `❌ <b>HTTP TEST FAILED</b>: ${name} - ${errorMessage} (Response time: ${responseTime}ms)`;
-    sendToAllUsers(message);
+    // Only send message if status changed
+    if (statusChanged) {
+      const message = `❌ <b>HTTP TEST FAILED</b>: ${name} - ${errorMessage} (Response time: ${responseTime}ms)`;
+      sendToAllUsers(message);
+    }
     
     return { status: 'failed', responseTime, errorMessage, name };
   }
@@ -132,21 +141,27 @@ export async function runTcpTest(testConfig, timeout = 5000) {
       socket.destroy();
       const responseTime = Math.round(performance.now() - startTime);
       
+      // Check previous status to determine if this is a status change
       const lastResult = getLastTestResult.get(target, testType);
-      const isRecovery = false;
+      const previousStatus = lastResult ? lastResult.status : null;
+      const currentStatus = 'failed';
+      const statusChanged = previousStatus !== currentStatus;
       
       // Explicit type conversion for SQLite binding
       insertTestResult.run(
         String(testType),
         String(name),
         String(target),
-        'failed',
+        currentStatus,
         Number(responseTime),
         'Connection timeout',
         0
       );
       
-      sendToAllUsers(`❌ <b>TCP TEST FAILED</b>: ${name} - Connection timeout (${responseTime}ms)`);
+      // Only send message if status changed
+      if (statusChanged) {
+        sendToAllUsers(`❌ <b>TCP TEST FAILED</b>: ${name} - Connection timeout (${responseTime}ms)`);
+      }
       resolve({ status: 'failed', responseTime, errorMessage: 'Connection timeout', name });
     }, timeout);
     
@@ -159,21 +174,26 @@ export async function runTcpTest(testConfig, timeout = 5000) {
       
       const responseTime = Math.round(performance.now() - startTime);
       
+      // Check previous status to determine if this is a status change
       const lastResult = getLastTestResult.get(target, testType);
-      const isRecovery = lastResult && lastResult.status === 'failed';
+      const previousStatus = lastResult ? lastResult.status : null;
+      const currentStatus = 'success';
+      const statusChanged = previousStatus !== currentStatus;
+      const isRecovery = previousStatus === 'failed' && currentStatus === 'success';
       
       // Explicit type conversion for SQLite binding
       insertTestResult.run(
         String(testType),
         String(name),
         String(target),
-        'success',
+        currentStatus,
         Number(responseTime),
         null,
         isRecovery ? 1 : 0
       );
       
-      if (isRecovery) {
+      // Only send message if status changed (recovery)
+      if (statusChanged && isRecovery) {
         sendToAllUsers(`✅ <b>TCP RECOVERY</b>: ${name} is reachable (${responseTime}ms)`);
       }
       
@@ -184,21 +204,27 @@ export async function runTcpTest(testConfig, timeout = 5000) {
       clearTimeout(timer);
       const responseTime = Math.round(performance.now() - startTime);
       
+      // Check previous status to determine if this is a status change
       const lastResult = getLastTestResult.get(target, testType);
-      const isRecovery = false;
+      const previousStatus = lastResult ? lastResult.status : null;
+      const currentStatus = 'failed';
+      const statusChanged = previousStatus !== currentStatus;
       
       // Explicit type conversion for SQLite binding
       insertTestResult.run(
         String(testType),
         String(name),
         String(target),
-        'failed',
+        currentStatus,
         Number(responseTime),
         String(error.message || error.code),
         0
       );
       
-      sendToAllUsers(`❌ <b>TCP TEST FAILED</b>: ${name} - ${error.message || error.code} (${responseTime}ms)`);
+      // Only send message if status changed
+      if (statusChanged) {
+        sendToAllUsers(`❌ <b>TCP TEST FAILED</b>: ${name} - ${error.message || error.code} (${responseTime}ms)`);
+      }
       resolve({ status: 'failed', responseTime, errorMessage: error.message || error.code, name });
     });
   });
