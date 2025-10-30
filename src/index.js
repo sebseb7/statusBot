@@ -3,6 +3,7 @@ import { initTelegram, sendMessage, sendToAllUsers } from './telegram.js';
 import { startMonitoring } from './scheduler.js';
 import { generateDailyReport } from './reports.js';
 import { parseTestConfig } from './tests.js';
+import { checkSystemHealth } from './system.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -81,6 +82,7 @@ async function main() {
       
       const intervalMinutes = parseInt(process.env.TEST_INTERVAL_MINUTES) || 5;
       const reportHour = process.env.DAILY_REPORT_HOUR || 9;
+      const systemCheckInterval = parseInt(process.env.SYSTEM_CHECK_INTERVAL_MINUTES) || 1;
       
       // Build detailed startup message
       let startupMessage = `🤖 <b>Status Bot Started</b>\n\n`;
@@ -89,6 +91,7 @@ async function main() {
       
       startupMessage += `📊 <b>Monitoring Configuration</b>\n`;
       startupMessage += `⏱️ Test Interval: ${intervalMinutes} minutes\n`;
+      startupMessage += `🖥️ System Check: ${systemCheckInterval} minute(s)\n`;
       startupMessage += `📅 Daily Reports: ${reportHour}:00\n\n`;
       
       if (totalTests > 0) {
@@ -122,6 +125,49 @@ async function main() {
         startupMessage += `  • <b>GitHub HTTPS</b>: <code>github.com:443</code>\n\n`;
         startupMessage += `✅ All systems ready. Monitoring active!`;
       }
+      
+      // Get initial system metrics
+      console.log('📊 Checking system resources...');
+      let systemMetricsMessage = '';
+      
+      // First CPU reading establishes baseline
+      await checkSystemHealth();
+      
+      // Wait 2 seconds and get actual metrics
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const systemHealth = await checkSystemHealth();
+      
+      if (systemHealth && systemHealth.status !== 'initializing' && systemHealth.status !== 'error') {
+        systemMetricsMessage += `\n🖥️ <b>Current System Status</b>\n`;
+        
+        // CPU
+        const cpuEmoji = systemHealth.cpuUsage >= 90 ? '🔴' : systemHealth.cpuUsage >= 80 ? '🟡' : '🟢';
+        systemMetricsMessage += `• CPU: <b>${systemHealth.cpuUsage}%</b> ${cpuEmoji}\n`;
+        
+        // RAM
+        const ramEmoji = systemHealth.ramInfo.usagePercent >= 95 ? '🔴' : systemHealth.ramInfo.usagePercent >= 85 ? '🟡' : '🟢';
+        systemMetricsMessage += `• RAM: <b>${systemHealth.ramInfo.usagePercent}%</b> (${systemHealth.ramInfo.usedMemMB}MB / ${systemHealth.ramInfo.totalMemMB}MB) ${ramEmoji}\n`;
+        
+        // Disk (if available)
+        if (systemHealth.diskInfo) {
+          const diskEmoji = systemHealth.diskInfo.usagePercent >= 95 ? '🔴' : systemHealth.diskInfo.usagePercent >= 85 ? '🟡' : '🟢';
+          systemMetricsMessage += `• Disk: <b>${systemHealth.diskInfo.usagePercent}%</b> (${systemHealth.diskInfo.availGB}GB free / ${systemHealth.diskInfo.totalGB}GB total) ${diskEmoji}\n`;
+        }
+        
+        // Overall status
+        const statusEmoji = systemHealth.status === 'healthy' ? '✅' : systemHealth.status === 'warning' ? '⚠️' : '🚨';
+        systemMetricsMessage += `• Status: <b>${systemHealth.status.toUpperCase()}</b> ${statusEmoji}\n`;
+        
+        if (systemHealth.warnings) {
+          systemMetricsMessage += `\n⚠️ <b>Warnings:</b>\n`;
+          systemHealth.warnings.forEach(warning => {
+            systemMetricsMessage += `  • ${warning}\n`;
+          });
+        }
+      }
+      
+      // Append system metrics to startup message
+      startupMessage += systemMetricsMessage;
       
       // Send startup message only to the first chat ID
       const chatIds = process.env.TELEGRAM_CHAT_IDS.split(',').map(id => id.trim());

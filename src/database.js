@@ -64,6 +64,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tests_timestamp ON tests(timestamp);
   CREATE INDEX IF NOT EXISTS idx_tests_target ON tests(target);
   CREATE INDEX IF NOT EXISTS idx_tests_name ON tests(test_name);
+
+  CREATE TABLE IF NOT EXISTS system_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpu_usage REAL NOT NULL,
+    ram_used_mb INTEGER NOT NULL,
+    ram_total_mb INTEGER NOT NULL,
+    ram_usage_percent INTEGER NOT NULL,
+    disk_used_gb INTEGER,
+    disk_total_gb INTEGER,
+    disk_usage_percent INTEGER,
+    status TEXT NOT NULL,
+    warning_message TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_system_metrics_timestamp ON system_metrics(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_system_metrics_status ON system_metrics(status);
 `);
 
 export default db;

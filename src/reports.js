@@ -33,12 +33,30 @@ const getSummaryStats = db.prepare(`
   WHERE DATE(timestamp) = DATE('now')
 `);
 
+const getSystemStats = db.prepare(`
+  SELECT 
+    AVG(cpu_usage) as avg_cpu,
+    MAX(cpu_usage) as max_cpu,
+    AVG(ram_usage_percent) as avg_ram,
+    MAX(ram_usage_percent) as max_ram,
+    MAX(ram_total_mb) as total_ram_mb,
+    AVG(disk_usage_percent) as avg_disk,
+    MAX(disk_usage_percent) as max_disk,
+    MIN(disk_usage_percent) as min_disk,
+    MAX(disk_total_gb) as total_disk_gb,
+    COUNT(CASE WHEN status = 'warning' THEN 1 END) as warning_count,
+    COUNT(CASE WHEN status = 'critical' THEN 1 END) as critical_count
+  FROM system_metrics 
+  WHERE DATE(timestamp) = DATE('now')
+`);
+
 export async function generateDailyReport() {
   const today = new Date().toISOString().split('T')[0];
   
   // Get summary statistics
   const summary = getSummaryStats.get();
   const details = getDailyStats.all();
+  const systemStats = getSystemStats.get();
   
   if (!summary || summary.total_tests === 0) {
     const message = `📊 <b>Daily Monitoring Report</b> (${today})\n\nℹ️ No test data available for today.\n\nMonitoring is active but no tests have run yet. First report will appear tomorrow.`;
@@ -63,6 +81,32 @@ export async function generateDailyReport() {
   message += `• Avg Response Time: ${avgResponseTime}ms\n`;
   message += `• Unique Services: ${summary.unique_tests}\n\n`;
   
+  // Add system metrics if available
+  if (systemStats && systemStats.avg_cpu !== null) {
+    message += `🖥️ <b>System Resources</b>\n`;
+    message += `• Avg CPU: ${Math.round(systemStats.avg_cpu || 0)}% (Peak: ${Math.round(systemStats.max_cpu || 0)}%)\n`;
+    message += `• Avg RAM: ${Math.round(systemStats.avg_ram || 0)}% (Peak: ${Math.round(systemStats.max_ram || 0)}%)\n`;
+    
+    if (systemStats.avg_disk !== null && systemStats.total_disk_gb) {
+      const avgDiskUsedGB = Math.round((systemStats.avg_disk / 100) * systemStats.total_disk_gb);
+      const maxDiskUsedGB = Math.round((systemStats.max_disk / 100) * systemStats.total_disk_gb);
+      message += `• Avg Disk: ${Math.round(systemStats.avg_disk || 0)}% (Peak: ${Math.round(systemStats.max_disk || 0)}% - ${systemStats.total_disk_gb - maxDiskUsedGB}GB free)\n`;
+    }
+    
+    if (systemStats.warning_count > 0 || systemStats.critical_count > 0) {
+      message += `• Alerts: `;
+      if (systemStats.critical_count > 0) {
+        message += `🔴 ${systemStats.critical_count} critical`;
+      }
+      if (systemStats.warning_count > 0) {
+        if (systemStats.critical_count > 0) message += `, `;
+        message += `⚠️ ${systemStats.warning_count} warning`;
+      }
+      message += `\n`;
+    }
+    message += `\n`;
+  }
+  
   message += `🔍 <b>Service Status</b>\n`;
   details.forEach(row => {
     const rowSuccessRate = ((row.total_tests - row.failed_tests) / row.total_tests * 100).toFixed(1);
@@ -72,7 +116,7 @@ export async function generateDailyReport() {
   });
   
   // Generate HTML chart
-  const chartPath = await createDailyChart(details, summary, today, overallStatus);
+  const chartPath = await createDailyChart(details, summary, today, overallStatus, systemStats);
   
   // Send text report
   await sendToAllUsers(message);
@@ -108,7 +152,7 @@ function getStatusEmoji(status) {
   }
 }
 
-async function createDailyChart(data, summary, date, overallStatus) {
+async function createDailyChart(data, summary, date, overallStatus, systemStats) {
   try {
     if (!summary || summary.total_tests === 0) {
       return null;
@@ -117,7 +161,7 @@ async function createDailyChart(data, summary, date, overallStatus) {
     const successRate = ((summary.total_tests - summary.failed_tests) / summary.total_tests * 100);
     
     // Generate HTML content
-    const htmlContent = generateReportHTML(data, summary, date, successRate, overallStatus);
+    const htmlContent = generateReportHTML(data, summary, date, successRate, overallStatus, systemStats);
     
     // Ensure reports directory exists
     const reportsDir = path.join(__dirname, '../reports');
@@ -153,7 +197,7 @@ async function createDailyChart(data, summary, date, overallStatus) {
   }
 }
 
-function generateReportHTML(data, summary, date, successRate, overallStatus) {
+function generateReportHTML(data, summary, date, successRate, overallStatus, systemStats) {
   const httpData = data.filter(d => d.test_type === 'http');
   const tcpData = data.filter(d => d.test_type === 'tcp');
   
@@ -471,6 +515,22 @@ function generateReportHTML(data, summary, date, successRate, overallStatus) {
         <h3>${Math.round(summary.avg_response_time || 0)}ms</h3>
         <p>Avg Response Time</p>
       </div>
+      ${systemStats && systemStats.avg_cpu !== null ? `
+      <div class="summary-item">
+        <h3>${Math.round(systemStats.avg_cpu || 0)}%</h3>
+        <p>Avg CPU Usage</p>
+      </div>
+      <div class="summary-item">
+        <h3>${Math.round(systemStats.avg_ram || 0)}%</h3>
+        <p>Avg RAM Usage</p>
+      </div>
+      ${systemStats.avg_disk !== null ? `
+      <div class="summary-item">
+        <h3>${Math.round(systemStats.avg_disk || 0)}%</h3>
+        <p>Avg Disk Usage</p>
+      </div>
+      ` : ''}
+      ` : ''}
     </div>
     
     <div class="services-section">
